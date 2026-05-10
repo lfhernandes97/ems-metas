@@ -210,16 +210,36 @@ hr{border:none;border-top:1px solid var(--border);margin:1rem 0}
     <div id="sec-atualizar" class="sec">
       <div class="page-title">Atualizar</div>
       <div class="form-card">
-        <div class="form-card-title">Registrar atualização semanal</div>
-        <div class="form-grid">
-          <div><label>Semana de referência</label><input type="week" id="upd-semana"></div>
-          <div><label>Meta</label><select id="upd-meta-sel" onchange="onSelMetaUpd()"><option value="">Selecione...</option></select></div>
+        <div class="form-card-title">Registrar atualização</div>
+        <!-- Toggle modo -->
+        <div style="display:flex;gap:8px;margin-bottom:1rem">
+          <button id="btn-modo-semana" class="btn-primary" onclick="setModo('semana')" style="font-size:12px;padding:5px 14px">📅 Por semana</button>
+          <button id="btn-modo-mes" class="btn-secondary" onclick="setModo('mes')" style="font-size:12px;padding:5px 14px">📆 Por mês (histórico)</button>
         </div>
-        <div id="upd-sms-wrap"></div>
-        <div class="form-grid single">
-          <div><label>Observação (opcional)</label><input type="text" id="upd-obs" placeholder="Ex: Semana de pico operacional"></div>
+        <!-- Semana -->
+        <div id="modo-semana-wrap">
+          <div class="form-grid">
+            <div><label>Semana de referência</label><input type="week" id="upd-semana"></div>
+            <div><label>Meta</label><select id="upd-meta-sel" onchange="onSelMetaUpd()"><option value="">Selecione...</option></select></div>
+          </div>
+          <div id="upd-sms-wrap"></div>
+          <div class="form-grid single">
+            <div><label>Observação (opcional)</label><input type="text" id="upd-obs" placeholder="Ex: Semana de pico operacional"></div>
+          </div>
+          <div class="btn-row"><button class="btn-primary" id="btn-salvar-upd" onclick="salvarUpd()">💾 Salvar atualização</button></div>
         </div>
-        <div class="btn-row"><button class="btn-primary" id="btn-salvar-upd" onclick="salvarUpd()">💾 Salvar atualização</button></div>
+        <!-- Mês -->
+        <div id="modo-mes-wrap" style="display:none">
+          <div class="form-grid">
+            <div><label>Mês de referência</label><input type="month" id="upd-mes"></div>
+            <div><label>Meta</label><select id="upd-meta-mes-sel" onchange="onSelMetaMes()"><option value="">Selecione...</option></select></div>
+          </div>
+          <div id="upd-sms-mes-wrap"></div>
+          <div class="form-grid single">
+            <div><label>Observação (opcional)</label><input type="text" id="upd-obs-mes" placeholder="Ex: Fechamento de Abril"></div>
+          </div>
+          <div class="btn-row"><button class="btn-primary" id="btn-salvar-mes" onclick="salvarUpdMes()">💾 Salvar mês</button></div>
+        </div>
       </div>
       <div class="card"><div class="card-title">Histórico recente</div><div id="hist"></div></div>
     </div>
@@ -577,6 +597,12 @@ function renderSelMeta() {
   var el = document.getElementById('upd-meta-sel'); var val = el.value;
   el.innerHTML = '<option value="">Selecione...</option>' + metas.map(function(m){ return '<option value="' + m.id + '">' + m.nome + '</option>'; }).join('');
   if (val) el.value = val;
+  var el2 = document.getElementById('upd-meta-mes-sel');
+  if (el2) {
+    var val2 = el2.value;
+    el2.innerHTML = '<option value="">Selecione...</option>' + metas.map(function(m){ return '<option value="' + m.id + '">' + m.nome + '</option>'; }).join('');
+    if (val2) el2.value = val2;
+  }
 }
 
 function onSelMetaUpd() {
@@ -718,6 +744,111 @@ function setWeek() {
   var mon = new Date(s); mon.setDate(s.getDate() - (d - 1));
   var wk = Math.ceil((now - mon) / 604800000) + 1;
   document.getElementById('upd-semana').value = y + '-W' + String(Math.min(wk, 52)).padStart(2, '0');
+}
+
+// ─── MODO SEMANAL / MENSAL ─────────────────────────────────────────
+var modoAtual = 'semana';
+
+function setModo(modo) {
+  modoAtual = modo;
+  document.getElementById('modo-semana-wrap').style.display = modo === 'semana' ? 'block' : 'none';
+  document.getElementById('modo-mes-wrap').style.display = modo === 'mes' ? 'block' : 'none';
+  document.getElementById('btn-modo-semana').className = modo === 'semana' ? 'btn-primary' : 'btn-secondary';
+  document.getElementById('btn-modo-mes').className = modo === 'mes' ? 'btn-primary' : 'btn-secondary';
+  document.getElementById('btn-modo-semana').style.cssText = 'font-size:12px;padding:5px 14px';
+  document.getElementById('btn-modo-mes').style.cssText = 'font-size:12px;padding:5px 14px';
+  if (modo === 'mes') renderSelMetaMes();
+}
+
+function renderSelMetaMes() {
+  var el = document.getElementById('upd-meta-mes-sel'); var val = el.value;
+  el.innerHTML = '<option value="">Selecione...</option>' + metas.map(function(m){ return '<option value="' + m.id + '">' + m.nome + '</option>'; }).join('');
+  if (val) el.value = val;
+}
+
+function onSelMetaMes() {
+  var id = document.getElementById('upd-meta-mes-sel').value;
+  var wrap = document.getElementById('upd-sms-mes-wrap');
+  var sms = id ? getSmForMeta(id) : [];
+  if (!sms.length) { wrap.innerHTML = '<p style="font-size:12px;color:#5c5d6a;margin-bottom:.75rem">Nenhuma submeta cadastrada.</p>'; return; }
+  var mes = document.getElementById('upd-mes').value; // YYYY-MM
+  wrap.innerHTML = '<div style="font-size:10px;font-weight:600;color:#5c5d6a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem;margin-top:4px">Valores do mês (fechamento)</div>'
+    + sms.map(function(sm) {
+      // buscar último valor existente neste mês
+      var yyyymm = mes ? parseInt(mes.replace('-', '')) : 0;
+      var lastAll = yyyymm ? atualizacoes.filter(function(a){
+        return a.submeta_id === sm.id && weekToYYYYMM(a.semana) === yyyymm;
+      }).sort(function(a,b){ return a.semana < b.semana ? -1 : 1; }) : [];
+      var last = lastAll.length ? lastAll[lastAll.length - 1] : null;
+      if (sm.tipo === 'checklist') {
+        return '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Checklist</span></div>'
+          + '<div class="check-wrap"><input type="checkbox" id="mes-ck-' + sm.id + '" ' + (last && last.feito ? 'checked' : '') + '><label class="check-label" for="mes-ck-' + sm.id + '">Concluído no mês</label></div></div>';
+      }
+      return '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span>'
+        + '<span style="font-size:11px;color:#5c5d6a">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + ' · ' + (sm.direcao === 'abaixo' ? 'Dentro ≤ alvo' : 'Dentro ≥ alvo') + '</span></div>'
+        + '<input type="number" id="mes-val-' + sm.id + '" value="' + (last ? last.valor : '') + '" placeholder="Valor fechado no mês"></div>';
+    }).join('');
+}
+
+// Converte YYYY-MM para a semana ISO da última semana daquele mês
+function mesParaUltimaSemana(mesStr) {
+  var parts = mesStr.split('-');
+  var year = parseInt(parts[0]), month = parseInt(parts[1]);
+  // último dia do mês
+  var lastDay = new Date(year, month, 0);
+  // calcular semana ISO
+  var jan4 = new Date(lastDay.getFullYear(), 0, 4);
+  var dow = jan4.getDay() || 7;
+  var mon = new Date(jan4);
+  mon.setDate(jan4.getDate() - (dow - 1));
+  var wk = Math.ceil((lastDay - mon) / 604800000) + 1;
+  var isoYear = lastDay.getFullYear();
+  // ajuste de virada de ano
+  if (wk > 52) {
+    var dec28 = new Date(isoYear, 11, 28);
+    var w2 = Math.ceil((dec28 - mon) / 604800000) + 1;
+    if (wk > w2) { isoYear++; wk = 1; }
+  }
+  return isoYear + '-W' + String(Math.min(wk, 53)).padStart(2, '0');
+}
+
+async function salvarUpdMes() {
+  var mes = document.getElementById('upd-mes').value;
+  var metaId = document.getElementById('upd-meta-mes-sel').value;
+  var obs = document.getElementById('upd-obs-mes').value.trim() || 'Fechamento ' + mes;
+  if (!mes) { toast('Selecione o mês.', 'err'); return; }
+  if (!metaId) { toast('Selecione uma meta.', 'err'); return; }
+  var semana = mesParaUltimaSemana(mes);
+  var sms = getSmForMeta(metaId);
+  var btn = document.getElementById('btn-salvar-mes'); btn.disabled = true;
+  var salvou = 0;
+  try {
+    for (var i = 0; i < sms.length; i++) {
+      var sm = sms[i];
+      var entry = { submeta_id: sm.id, semana: semana, obs: obs };
+      if (sm.tipo === 'checklist') {
+        var el = document.getElementById('mes-ck-' + sm.id); if (!el) continue;
+        entry.feito = el.checked;
+      } else {
+        var el2 = document.getElementById('mes-val-' + sm.id); if (!el2 || el2.value === '') continue;
+        entry.valor = parseFloat(el2.value);
+      }
+      var existing = atualizacoes.find(function(a){ return a.submeta_id === sm.id && a.semana === semana; });
+      if (existing) {
+        var upd = await dbPatch('atualizacoes', 'id=eq.' + existing.id, entry);
+        var idx = atualizacoes.findIndex(function(a){ return a.id === existing.id; });
+        atualizacoes[idx] = upd[0];
+      } else {
+        var novo = await dbPost('atualizacoes', entry);
+        atualizacoes.push(novo[0]);
+      }
+      salvou++;
+    }
+    renderAll();
+    document.getElementById('upd-obs-mes').value = '';
+    toast(salvou ? salvou + ' submeta' + (salvou > 1 ? 's' : '') + ' do mês salva' + (salvou > 1 ? 's' : '') + '!' : 'Nenhum dado alterado.', 'ok');
+  } catch(e) { toast('Erro: ' + e.message, 'err'); }
+  btn.disabled = false;
 }
 
 // ─── INIT ──────────────────────────────────────────────────────────

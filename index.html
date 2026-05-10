@@ -238,7 +238,7 @@ hr{border:none;border-top:1px solid var(--border);margin:1rem 0}
           <div class="form-grid single">
             <div><label>Observação (opcional)</label><input type="text" id="upd-obs-mes" placeholder="Ex: Fechamento de Abril"></div>
           </div>
-           <div class="btn-row">
+          <div class="btn-row">
             <button class="btn-primary" id="btn-salvar-mes" onclick="salvarUpdMes()">💾 Salvar mês</button>
             <button class="btn-secondary" onclick="limparMes()" style="font-size:12px">🗑 Limpar mês</button>
           </div>
@@ -381,9 +381,19 @@ function getSmPctAtual(sm) {
 function getMetaPct(meta) {
   var sms = getSmForMeta(meta.id);
   if (!sms.length) return 0;
-  var ps = sms.map(function(sm){ return getSmPctAtual(sm); }).filter(function(p){ return p !== null; });
-  if (!ps.length) return 0;
-  return ps.reduce(function(a,b){ return a+b; }, 0) / ps.length;
+  // Calcula média de todos os meses registrados para cada submeta
+  // assim meses Fora penalizam o resultado geral
+  var allPcts = [];
+  sms.forEach(function(sm) {
+    var mesesSm = [...new Set(getUpdsForSm(sm.id).map(function(a){ return weekToYYYYMM(a.semana); }))].sort();
+    mesesSm.forEach(function(ym) {
+      var u = getSmValMes(sm.id, ym);
+      var p = smPctFromUpd(sm, u);
+      if (p !== null) allPcts.push(p);
+    });
+  });
+  if (!allPcts.length) return 0;
+  return allPcts.reduce(function(a,b){ return a+b; }, 0) / allPcts.length;
 }
 function isDentro(sm, val) {
   if (sm.tipo === 'checklist') return val === true;
@@ -616,20 +626,35 @@ function renderSelMeta() {
 
 function onSelMetaUpd() {
   var id = document.getElementById('upd-meta-sel').value;
-  var meta = metas.find(function(m){ return m.id === id; });
   var wrap = document.getElementById('upd-sms-wrap');
   var sms = id ? getSmForMeta(id) : [];
   if (!sms.length) { wrap.innerHTML = '<p style="font-size:12px;color:#5c5d6a;margin-bottom:.75rem">Nenhuma submeta cadastrada.</p>'; return; }
+  // Mostrar select de submeta primeiro
+  wrap.innerHTML = '<div style="margin-bottom:10px">'
+    + '<label>Submeta</label>'
+    + '<select id="upd-sm-sel" onchange="onSelSmUpd()">'
+    + '<option value="">Selecione a submeta...</option>'
+    + sms.map(function(sm){ return '<option value="' + sm.id + '">' + sm.nome + '</option>'; }).join('')
+    + '</select></div>'
+    + '<div id="upd-sm-campos"></div>';
+}
+
+function onSelSmUpd() {
+  var smId = document.getElementById('upd-sm-sel').value;
+  var el = document.getElementById('upd-sm-campos');
+  if (!smId) { el.innerHTML = ''; return; }
+  var sm = submetas.find(function(s){ return s.id === smId; });
+  if (!sm) return;
   var semana = document.getElementById('upd-semana').value;
-  wrap.innerHTML = '<div style="font-size:10px;font-weight:600;color:#5c5d6a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem;margin-top:4px">Submetas</div>'
-    + sms.map(function(sm) {
-      var lastAll = atualizacoes.filter(function(a){ return a.submeta_id === sm.id && (!semana || a.semana <= semana); }).sort(function(a,b){ return a.semana < b.semana ? -1 : 1; });
-      var last = lastAll.length ? lastAll[lastAll.length - 1] : null;
-      if (sm.tipo === 'checklist') {
-        return '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Checklist</span></div><div class="check-wrap"><input type="checkbox" id="ck-' + sm.id + '" ' + (last && last.feito ? 'checked' : '') + '><label class="check-label" for="ck-' + sm.id + '">Concluído</label></div></div>';
-      }
-      return '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + ' · ' + (sm.direcao === 'abaixo' ? 'Dentro ≤ alvo' : 'Dentro ≥ alvo') + '</span></div><input type="number" id="val-' + sm.id + '" value="' + (last ? last.valor : '') + '" placeholder="Valor desta semana"></div>';
-    }).join('');
+  var lastAll = atualizacoes.filter(function(a){ return a.submeta_id === smId && (!semana || a.semana <= semana); }).sort(function(a,b){ return a.semana < b.semana ? -1 : 1; });
+  var last = lastAll.length ? lastAll[lastAll.length - 1] : null;
+  if (sm.tipo === 'checklist') {
+    el.innerHTML = '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Checklist</span></div><div class="check-wrap"><input type="checkbox" id="ck-' + sm.id + '" ' + (last && last.feito ? 'checked' : '') + '><label class="check-label" for="ck-' + sm.id + '">Concluído</label></div></div>';
+  } else {
+    var ultimoValor = last ? last.valor : '';
+    var ultimaInfo = last ? '<span style="font-size:11px;color:#5c5d6a;margin-left:8px">Último: ' + last.valor + ' (' + last.semana.replace('-W',' S') + ')</span>' : '';
+    el.innerHTML = '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + ' · ' + (sm.direcao === 'abaixo' ? 'Dentro ≤ alvo' : 'Dentro ≥ alvo') + '</span>' + ultimaInfo + '</div><input type="number" id="val-' + sm.id + '" value="' + ultimoValor + '" placeholder="Novo valor"></div>';
+  }
 }
 
 async function salvarUpd() {
@@ -638,205 +663,172 @@ async function salvarUpd() {
   var obs = document.getElementById('upd-obs').value.trim();
   if (!semana) { toast('Selecione a semana.', 'err'); return; }
   if (!metaId) { toast('Selecione uma meta.', 'err'); return; }
-  var sms = getSmForMeta(metaId);
+  var smSel = document.getElementById('upd-sm-sel');
+  var smId = smSel ? smSel.value : '';
+  if (!smId) { toast('Selecione uma submeta.', 'err'); return; }
+  var sm = submetas.find(function(s){ return s.id === smId; });
+  if (!sm) return;
   var btn = document.getElementById('btn-salvar-upd'); btn.disabled = true;
-  var salvou = 0;
   try {
-    for (var i = 0; i < sms.length; i++) {
-      var sm = sms[i];
-      var entry = { submeta_id: sm.id, semana: semana, obs: obs };
-      if (sm.tipo === 'checklist') {
-        var el = document.getElementById('ck-' + sm.id); if (!el) continue;
-        entry.feito = el.checked;
-      } else {
-        var el2 = document.getElementById('val-' + sm.id); if (!el2 || el2.value === '') continue;
-        entry.valor = parseFloat(el2.value);
-      }
-      var existing = atualizacoes.find(function(a){ return a.submeta_id === sm.id && a.semana === semana; });
-      if (existing) {
-        var upd = await dbPatch('atualizacoes', 'id=eq.' + existing.id, entry);
-        var idx = atualizacoes.findIndex(function(a){ return a.id === existing.id; });
-        atualizacoes[idx] = upd[0];
-      } else {
-        var novo = await dbPost('atualizacoes', entry);
-        atualizacoes.push(novo[0]);
-      }
-      salvou++;
+    var entry = { submeta_id: sm.id, semana: semana, obs: obs };
+    if (sm.tipo === 'checklist') {
+      var ckEl = document.getElementById('ck-' + sm.id);
+      if (!ckEl) { btn.disabled = false; return; }
+      entry.feito = ckEl.checked;
+    } else {
+      var valEl = document.getElementById('val-' + sm.id);
+      if (!valEl || valEl.value === '') { toast('Informe o valor.', 'err'); btn.disabled = false; return; }
+      entry.valor = parseFloat(valEl.value);
+    }
+    var existing = atualizacoes.find(function(a){ return a.submeta_id === sm.id && a.semana === semana; });
+    if (existing) {
+      var res = await dbPatch('atualizacoes', 'id=eq.' + existing.id, entry);
+      var idx2 = atualizacoes.findIndex(function(a){ return a.id === existing.id; });
+      atualizacoes[idx2] = res[0];
+    } else {
+      var novo = await dbPost('atualizacoes', entry);
+      atualizacoes.push(novo[0]);
     }
     renderAll();
     document.getElementById('upd-obs').value = '';
-    toast(salvou ? salvou + ' submeta' + (salvou > 1 ? 's' : '') + ' salva' + (salvou > 1 ? 's' : '') + '!': 'Nenhum dado alterado.', 'ok');
+    onSelSmUpd();
+    toast('Submeta salva!', 'ok');
   } catch(e) { toast('Erro: ' + e.message, 'err'); }
   btn.disabled = false;
 }
 
-function renderHist() {
-  var el = document.getElementById('hist');
-  var semanas = [...new Set(atualizacoes.map(function(a){ return a.semana; }))].sort().reverse().slice(0, 4);
-  if (!semanas.length) { el.innerHTML = '<div class="empty">Nenhuma atualização ainda.</div>'; return; }
-  el.innerHTML = semanas.map(function(sem) {
-    var ym = weekToYM(sem);
-    return '<div class="hist-week"><div class="hist-week-label">' + sem.replace('-W', ' Semana ') + ' · ' + MESES[ym.month - 1] + '/' + ym.year + '</div>'
-      + metas.map(function(m) { var pct = Math.round(getMetaPct(m)); var bar = barColor(pct); return '<div class="hist-row"><span class="hist-meta">' + m.nome + '</span><span style="font-size:13px;font-weight:600;color:' + bar + '">' + pct + '%</span></div>'; }).join('')
-      + '</div>';
-  }).join('<hr>');
-}
-
-// ─── DETALHE ───────────────────────────────────────────────────────
-function renderDetSel() {
-  var el = document.getElementById('det-sel'); var val = el.value;
-  el.innerHTML = '<option value="">Selecione uma meta...</option>' + metas.map(function(m){ return '<option value="' + m.id + '">' + m.nome + '</option>'; }).join('');
-  if (val) el.value = val;
-}
-
-function renderDet() {
-  var id = document.getElementById('det-sel').value;
-  var el = document.getElementById('det-body');
-  if (!id) { el.innerHTML = ''; return; }
-  var meta = metas.find(function(m){ return m.id === id; }); if (!meta) return;
-  var pct = getMetaPct(meta); var bar = barColor(pct);
-  var sms = getSmForMeta(id);
-
-  el.innerHTML = '<div style="margin-bottom:1.25rem">'
-    + '<span class="pilar-pill ' + pilarCls(meta.pilar) + '">' + (meta.pilar || 'Sem pilar') + '</span>'
-    + '<div style="display:flex;align-items:center;gap:10px;margin:.75rem 0 .5rem"><span class="badge ' + badgeCls(Math.min(pct, 100)) + '">' + Math.round(pct) + '% atingido</span></div>'
-    + (meta.metrica ? '<div style="font-size:12px;color:#9a9ba8;margin-bottom:.75rem;line-height:1.6">' + meta.metrica + '</div>' : '')
-    + '<div class="pb-bg" style="height:6px"><div class="pb-fill" style="width:' + Math.min(pct, 100) + '%;background:' + bar + '"></div></div>'
-    + '</div>'
-    + '<div style="font-size:10px;font-weight:600;color:#5c5d6a;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.75rem">Submetas — visão mensal</div>'
-    + sms.map(function(sm) {
-      var sp = getSmPctAtual(sm); var spv = sp !== null ? Math.min(sp, 100) : 0;
-      var mesesSm = [...new Set(atualizacoes.filter(function(a){ return a.submeta_id === sm.id; }).map(function(a){ return weekToYYYYMM(a.semana); }))].sort();
-      return '<div class="sm-block" style="margin-bottom:8px"><div class="sm-head" onclick="toggleSm(\'det-' + sm.id + '\')">'
-        + '<span class="chev" id="chev-det-' + sm.id + '">›</span>'
-        + '<span class="sm-title">' + sm.nome + '</span>'
-        + (sm.tipo === 'valor' ? '<span style="font-size:11px;color:#5c5d6a;margin-right:8px">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + '</span>' : '')
-        + '<span class="badge ' + badgeCls(spv) + '">' + (sm.tipo === 'checklist' ? (sp === 100 ? 'Feito' : 'Pendente') : Math.round(spv) + '%') + '</span>'
-        + '</div><div class="sm-body" id="smbody-det-' + sm.id + '" style="display:none">'
-        + '<div class="month-grid" style="margin-bottom:.875rem">'
-        + (mesesSm.length ? mesesSm.map(function(ym) {
-            var u = getSmValMes(sm.id, ym); if (!u) return '';
-            var v = sm.tipo === 'checklist' ? u.feito : parseFloat(u.valor); var dentro = isDentro(sm, v);
-            var pc = sm.tipo === 'checklist' ? (u.feito ? 100 : 0) : (sm.alvo ? Math.min(Math.round((parseFloat(u.valor) || 0) / sm.alvo * 100), 150) : 0);
-            return '<div class="month-chip"><div class="mn">' + yyyymmLabel(ym) + '</div><div class="mv" style="color:' + barColor(Math.min(pc, 100)) + '">' + (sm.tipo === 'checklist' ? (u.feito ? '✓' : '✗') : (parseFloat(u.valor) || 0).toLocaleString('pt-BR') + ' ' + (sm.unidade || '')) + '</div><div class="mf ' + (dentro ? 'fd' : 'ff') + '">' + (dentro ? '● Dentro' : '● Fora') + ' · ' + Math.round(pc) + '%</div></div>';
-          }).join('') : '<span style="font-size:12px;color:#5c5d6a">Sem dados ainda.</span>')
-        + '</div>'
-        + (mesesSm.length ? '<div class="chart-wrap"><canvas id="canvas-det-' + sm.id + '" role="img" aria-label="Evolução da submeta ' + sm.nome + '"></canvas></div>' : '')
-        + '</div></div>';
-    }).join('');
-
-  setTimeout(function() {
-    sms.forEach(function(sm) {
-      var canvas = document.getElementById('canvas-det-' + sm.id); if (!canvas) return;
-      var mesesSm = [...new Set(atualizacoes.filter(function(a){ return a.submeta_id === sm.id; }).map(function(a){ return weekToYYYYMM(a.semana); }))].sort();
-      if (!mesesSm.length) return;
-      if (chartD) chartD.destroy();
-      chartD = new Chart(canvas, {
-        type: 'line',
-        data: {
-          labels: mesesSm.map(yyyymmLabel),
-          datasets: [
-            { label: sm.nome, data: mesesSm.map(function(ym){ var u = getSmValMes(sm.id, ym); if (!u) return null; return sm.tipo === 'checklist' ? (u.feito ? 100 : 0) : (parseFloat(u.valor) || 0); }), borderColor: '#4f8ef7', backgroundColor: '#4f8ef718', tension: 0.3, fill: true, pointRadius: 5, pointBackgroundColor: '#4f8ef7', spanGaps: true },
-            ...(sm.tipo === 'valor' && sm.alvo ? [{ label: 'Alvo (' + sm.alvo + ')', data: mesesSm.map(function(){ return sm.alvo; }), borderColor: '#f04f59', borderDash: [5, 5], borderWidth: 1.5, pointRadius: 0, fill: false }] : [])
-          ]
-        },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, labels: { color: '#9a9ba8', font: { size: 11, family: 'DM Sans' }, boxWidth: 10, padding: 10 } } }, scales: { y: { ticks: { color: '#5c5d6a', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#5c5d6a', font: { size: 11 }, autoSkip: false, maxRotation: 45 }, grid: { display: false } } } }
-      });
-    });
-  }, 80);
-}
-
-// ─── WEEK DEFAULT ──────────────────────────────────────────────────
-function setWeek() {
-  var now = new Date(); var y = now.getFullYear();
-  var s = new Date(y, 0, 4); var d = s.getDay() || 7;
-  var mon = new Date(s); mon.setDate(s.getDate() - (d - 1));
-  var wk = Math.ceil((now - mon) / 604800000) + 1;
-  document.getElementById('upd-semana').value = y + '-W' + String(Math.min(wk, 52)).padStart(2, '0');
-}
-
-// ─── MODO SEMANAL / MENSAL ─────────────────────────────────────────
-var modoAtual = 'semana';
-
-function setModo(modo) {
-  modoAtual = modo;
-  document.getElementById('modo-semana-wrap').style.display = modo === 'semana' ? 'block' : 'none';
-  document.getElementById('modo-mes-wrap').style.display = modo === 'mes' ? 'block' : 'none';
-  document.getElementById('btn-modo-semana').className = modo === 'semana' ? 'btn-primary' : 'btn-secondary';
-  document.getElementById('btn-modo-mes').className = modo === 'mes' ? 'btn-primary' : 'btn-secondary';
-  document.getElementById('btn-modo-semana').style.cssText = 'font-size:12px;padding:5px 14px';
-  document.getElementById('btn-modo-mes').style.cssText = 'font-size:12px;padding:5px 14px';
-  if (modo === 'mes') renderSelMetaMes();
-}
-
-function renderSelMetaMes() {
-  var el = document.getElementById('upd-meta-mes-sel'); var val = el.value;
-  el.innerHTML = '<option value="">Selecione...</option>' + metas.map(function(m){ return '<option value="' + m.id + '">' + m.nome + '</option>'; }).join('');
-  if (val) el.value = val;
-}
-
-function limparMes() {
+async function salvarUpdMes() {
   var mes = document.getElementById('upd-mes').value;
   var metaId = document.getElementById('upd-meta-mes-sel').value;
-  if (!mes || !metaId) { toast('Selecione mês e meta.', 'err'); return; }
-  if (!confirm('Remover todos os valores registrados para este mês nesta meta?')) return;
+  var obs = document.getElementById('upd-obs-mes').value.trim() || 'Fechamento ' + mes;
+  if (!mes) { toast('Selecione o mês.', 'err'); return; }
+  if (!metaId) { toast('Selecione uma meta.', 'err'); return; }
+  var smMesSel = document.getElementById('upd-sm-mes-sel');
+  var smId = smMesSel ? smMesSel.value : '';
+  if (!smId) { toast('Selecione uma submeta.', 'err'); return; }
+  var sm = submetas.find(function(s){ return s.id === smId; });
+  if (!sm) return;
   var semana = mesParaUltimaSemana(mes);
-  var sms = getSmForMeta(metaId);
-  var toDelete = atualizacoes.filter(function(a) {
-    return sms.find(function(s){ return s.id === a.submeta_id; }) && a.semana === semana;
-  });
-  if (!toDelete.length) { toast('Nenhum dado encontrado para este mês.', 'err'); return; }
-  Promise.all(toDelete.map(function(a){ return dbDelete('atualizacoes', 'id=eq.' + a.id); }))
-    .then(function() {
-      atualizacoes = atualizacoes.filter(function(a){ return !toDelete.find(function(d){ return d.id === a.id; }); });
-      renderAll(); toast('Dados do mês removidos!', 'ok');
-      onSelMetaMes();
-    }).catch(function(e){ toast('Erro: ' + e.message, 'err'); });
+  var btn = document.getElementById('btn-salvar-mes'); btn.disabled = true;
+  try {
+    var entry = { submeta_id: sm.id, semana: semana, obs: obs };
+    if (sm.tipo === 'checklist') {
+      var ckEl = document.getElementById('mes-ck-' + sm.id);
+      if (!ckEl) { btn.disabled = false; return; }
+      entry.feito = ckEl.checked;
+    } else {
+      var valEl = document.getElementById('mes-val-' + sm.id);
+      if (!valEl || valEl.value === '') { toast('Informe o valor.', 'err'); btn.disabled = false; return; }
+      entry.valor = parseFloat(valEl.value);
+    }
+    var existing = atualizacoes.find(function(a){ return a.submeta_id === sm.id && a.semana === semana; });
+    if (existing) {
+      var res = await dbPatch('atualizacoes', 'id=eq.' + existing.id, entry);
+      var idx2 = atualizacoes.findIndex(function(a){ return a.id === existing.id; });
+      atualizacoes[idx2] = res[0];
+    } else {
+      var novo = await dbPost('atualizacoes', entry);
+      atualizacoes.push(novo[0]);
+    }
+    renderAll();
+    document.getElementById('upd-obs-mes').value = '';
+    onSelSmMes();
+    toast('Mês salvo!', 'ok');
+  } catch(e) { toast('Erro: ' + e.message, 'err'); }
+  btn.disabled = false;
 }
 
-function onSelMetaMes() {
+// ─── INIT ──────────────────────────────────────────────────────────
+// Delegação global para sm-head toggle e excluir-sm
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('[data-action]');
+  if (!el) return;
+  var action = el.dataset.action;
+  var id = el.dataset.id;
+  if (action === 'toggle-sm') { e.stopPropagation(); toggleSm(id); }
+  if (action === 'excluir-sm') { e.stopPropagation(); excluirSm(id); }
+});
+setWeek();
+loadAll();
+</script>
+</body>
+</html>
+<!-- 
+  IMPORTANTE: Antes de abrir no navegador, execute este SQL no Supabase SQL Editor:
+
+  create table metas (
+    id uuid primary key default gen_random_uuid(),
+    nome text not null,
+    pilar text,
+    metrica text,
+    criado_em timestamptz default now()
+  );
+
+  create table submetas (
+    id uuid primary key default gen_random_uuid(),
+    meta_id uuid references metas(id) on delete cascade,
+    nome text not null,
+    tipo text not null default 'valor',
+    alvo numeric,
+    unidade text,
+    direcao text default 'acima',
+    criado_em timestamptz default now()
+  );
+
+  create table atualizacoes (
+    id uuid primary key default gen_random_uuid(),
+    submeta_id uuid references submetas(id) on delete cascade,
+    semana text not null,
+    valor numeric,
+    feito boolean,
+    obs text,
+    criado_em timestamptz default now()
+  );
+
+  -- Habilitar acesso público (RLS off para uso pessoal):
+  alter table metas disable row level security;
+  alter table submetas disable row level security;
+  alter table atualizacoes disable row level security;
+-->function onSelMetaMes() {
   var id = document.getElementById('upd-meta-mes-sel').value;
   var wrap = document.getElementById('upd-sms-mes-wrap');
   var sms = id ? getSmForMeta(id) : [];
   if (!sms.length) { wrap.innerHTML = '<p style="font-size:12px;color:#5c5d6a;margin-bottom:.75rem">Nenhuma submeta cadastrada.</p>'; return; }
-  var mes = document.getElementById('upd-mes').value; // YYYY-MM
-  // Verificar se já existe dado para este mês
+  var mes = document.getElementById('upd-mes').value;
+  wrap.innerHTML = '<div style="margin-bottom:10px"><label>Submeta</label>'
+    + '<select id="upd-sm-mes-sel" onchange="onSelSmMes()">'
+    + '<option value="">Selecione a submeta...</option>'
+    + sms.map(function(sm){ return '<option value="' + sm.id + '">' + sm.nome + '</option>'; }).join('')
+    + '</select></div><div id="upd-sm-mes-campos"></div>';
   var yyyymm = mes ? parseInt(mes.replace('-', '')) : 0;
-  var jaTemDado = yyyymm && getSmForMeta(id).some(function(sm){
+  var jaTemDado = yyyymm && sms.some(function(sm){
     return atualizacoes.find(function(a){ return a.submeta_id === sm.id && weekToYYYYMM(a.semana) === yyyymm; });
   });
   var aviso = document.getElementById('aviso-mes');
   if (aviso) aviso.style.display = jaTemDado ? 'block' : 'none';
-  wrap.innerHTML = '<div style="font-size:10px;font-weight:600;color:#5c5d6a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem;margin-top:4px">Valores do mês (fechamento)</div>'
-    + sms.map(function(sm) {
-      // buscar último valor existente neste mês
-      var yyyymm = mes ? parseInt(mes.replace('-', '')) : 0;
-      var lastAll = yyyymm ? atualizacoes.filter(function(a){
-        return a.submeta_id === sm.id && weekToYYYYMM(a.semana) === yyyymm;
-      }).sort(function(a,b){ return a.semana < b.semana ? -1 : 1; }) : [];
-      var last = lastAll.length ? lastAll[lastAll.length - 1] : null;
-      if (sm.tipo === 'checklist') {
-        return '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Checklist</span></div>'
-          + '<div class="check-wrap"><input type="checkbox" id="mes-ck-' + sm.id + '" ' + (last && last.feito ? 'checked' : '') + '><label class="check-label" for="mes-ck-' + sm.id + '">Concluído no mês</label></div></div>';
-      }
-      return '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span>'
-        + '<span style="font-size:11px;color:#5c5d6a">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + ' · ' + (sm.direcao === 'abaixo' ? 'Dentro ≤ alvo' : 'Dentro ≥ alvo') + '</span></div>'
-        + '<input type="number" id="mes-val-' + sm.id + '" value="' + (last ? last.valor : '') + '" placeholder="Valor fechado no mês"></div>';
-    }).join('');
 }
 
-// Converte YYYY-MM para semana ISO do dia 15 (sempre dentro do mês correto)
-function mesParaUltimaSemana(mesStr) {
-  var parts = mesStr.split('-');
-  var year = parseInt(parts[0]), month = parseInt(parts[1]);
-  // Usa dia 15 — sempre cai dentro do mês no calendário ISO
-  var mid = new Date(year, month - 1, 15);
-  var jan4 = new Date(mid.getFullYear(), 0, 4);
-  var dow = jan4.getDay() || 7;
-  var mon = new Date(jan4);
-  mon.setDate(jan4.getDate() - (dow - 1));
-  var wk = Math.ceil((mid - mon) / 604800000) + 1;
-  return mid.getFullYear() + '-W' + String(wk).padStart(2, '0');
+function onSelSmMes() {
+  var smId = document.getElementById('upd-sm-mes-sel').value;
+  var el = document.getElementById('upd-sm-mes-campos');
+  if (!smId) { el.innerHTML = ''; return; }
+  var sm = submetas.find(function(s){ return s.id === smId; });
+  if (!sm) return;
+  var mes = document.getElementById('upd-mes').value;
+  var yyyymm = mes ? parseInt(mes.replace('-', '')) : 0;
+  var lastAll = yyyymm ? atualizacoes.filter(function(a){
+    return a.submeta_id === sm.id && weekToYYYYMM(a.semana) === yyyymm;
+  }).sort(function(a,b){ return a.semana < b.semana ? -1 : 1; }) : [];
+  var last = lastAll.length ? lastAll[lastAll.length - 1] : null;
+  if (sm.tipo === 'checklist') {
+    el.innerHTML = '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span><span style="font-size:11px;color:#5c5d6a">Checklist</span></div>'
+      + '<div class="check-wrap"><input type="checkbox" id="mes-ck-' + sm.id + '" ' + (last && last.feito ? 'checked' : '') + '><label class="check-label" for="mes-ck-' + sm.id + '">Concluído no mês</label></div></div>';
+  } else {
+    var ultimaInfo = last ? '<span style="font-size:11px;color:#5c5d6a;margin-left:8px">Registrado: ' + last.valor + '</span>' : '';
+    el.innerHTML = '<div class="upd-sm-item"><div class="upd-sm-head"><span class="upd-sm-name">' + sm.nome + '</span>'
+      + '<span style="font-size:11px;color:#5c5d6a">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + ' · ' + (sm.direcao === 'abaixo' ? 'Dentro ≤ alvo' : 'Dentro ≥ alvo') + '</span>' + ultimaInfo + '</div>'
+      + '<input type="number" id="mes-val-' + sm.id + '" value="' + (last ? last.valor : '') + '" placeholder="Valor fechado no mês"></div>';
+  }
 }
 
 async function salvarUpdMes() {

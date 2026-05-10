@@ -374,6 +374,7 @@ function nav(id) {
   document.querySelectorAll('.nav-item')[map.indexOf(id)].classList.add('active');
   if (id === 'geral') renderGeral();
   if (id === 'detalhe') renderDet();
+  if (id === 'metas') renderListaMetas();
   if (id === 'atualizar') { renderSelMeta(); renderHist(); }
 }
 
@@ -381,6 +382,7 @@ function renderAll() { renderGeral(); renderListaMetas(); renderSelMeta(); rende
 
 // ─── VISÃO GERAL ───────────────────────────────────────────────────
 function renderGeral() {
+  if (!document.getElementById('sec-geral').classList.contains('active')) return;
   var meses = getMesesComDados();
   var el = document.getElementById('cards-geral');
   if (!metas.length) { el.innerHTML = '<div class="mc"><div class="mc-label">Status</div><div class="mc-value" style="font-size:16px">Nenhuma meta</div></div>'; }
@@ -403,6 +405,7 @@ function renderGeral() {
   }
 
   var canvas = document.getElementById('chart-geral');
+  if (!canvas) return;
   if (!meses.length) { canvas.parentElement.innerHTML = '<div class="empty">Insira atualizações para ver a evolução mensal.</div>'; return; }
   var colors = ['#34c77b','#4f8ef7','#f5a623','#f04f59','#a78bfa','#22d3ee'];
   var datasets = metas.map(function(m, i) {
@@ -428,53 +431,81 @@ function renderListaMetas() {
   el.innerHTML = metas.map(function(m) {
     var pct = getMetaPct(m); var bar = barColor(pct);
     var sms = getSmForMeta(m.id);
-    return '<div class="meta-block"><div class="meta-head" onclick="toggleMeta(\'' + m.id + '\')">'
+    return '<div class="meta-block">'
+      + '<div class="meta-head" data-id="' + m.id + '" data-action="toggle-meta">'
       + '<span class="chev" id="chev-' + m.id + '">›</span>'
-      + '<div style="flex:1"><div class="meta-title">' + m.nome + '</div><span class="pilar-pill ' + pilarCls(m.pilar) + '" style="margin-top:3px;display:inline-block">' + (m.pilar || 'Sem pilar') + '</span></div>'
-      + '<div style="display:flex;align-items:center;gap:8px"><span class="badge ' + badgeCls(Math.min(pct, 100)) + '">' + Math.round(pct) + '%</span>'
-      + '<button class="btn-danger" onclick="event.stopPropagation();excluirMeta(\'' + m.id + '\')">✕</button></div></div>'
+      + '<div style="flex:1"><div class="meta-title">' + m.nome + '</div>'
+      + '<span class="pilar-pill ' + pilarCls(m.pilar) + '" style="margin-top:3px;display:inline-block">' + (m.pilar || 'Sem pilar') + '</span></div>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span class="badge ' + badgeCls(Math.min(pct, 100)) + '">' + Math.round(pct) + '%</span>'
+      + '<button class="btn-danger" data-id="' + m.id + '" data-action="excluir-meta">✕</button>'
+      + '</div></div>'
       + '<div class="meta-body" id="body-' + m.id + '" style="display:none">'
       + (m.metrica ? '<div class="meta-desc">' + m.metrica + '</div>' : '')
       + '<div class="pb-bg" style="margin-bottom:1rem"><div class="pb-fill" style="width:' + Math.min(pct, 100) + '%;background:' + bar + '"></div></div>'
       + sms.map(function(sm){ return renderSmCard(m, sm); }).join('')
-      + '<button class="btn-secondary" style="margin-top:.75rem" onclick="abrirFormSm(\'' + m.id + '\')">+ Adicionar submeta</button>'
+      + '<button class="btn-secondary" style="margin-top:.75rem" data-id="' + m.id + '" data-action="abrir-sm">+ Adicionar submeta</button>'
       + '</div></div>';
   }).join('');
+  // Attach events via delegation
+  el.querySelectorAll('[data-action="toggle-meta"]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) { toggleMeta(this.dataset.id); });
+  });
+  el.querySelectorAll('[data-action="excluir-meta"]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) { e.stopPropagation(); excluirMeta(this.dataset.id); });
+  });
+  el.querySelectorAll('[data-action="abrir-sm"]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) { abrirFormSm(this.dataset.id); });
+  });
 }
 
 function renderSmCard(m, sm) {
   var sp = getSmPctAtual(sm); var spv = sp !== null ? Math.min(sp, 100) : 0; var sbar = barColor(spv);
   var allU = getUpdsForSm(sm.id).sort(function(a,b){ return a.semana < b.semana ? -1 : 1; });
   var mesesSm = [...new Set(allU.map(function(u){ return weekToYYYYMM(u.semana); }))].sort();
-  return '<div class="sm-block"><div class="sm-head" onclick="toggleSm(\'' + m.id + '-' + sm.id + '\')">'
-    + '<span class="chev" id="chev-' + m.id + '-' + sm.id + '">›</span>'
+  var smKey = m.id + '-' + sm.id;
+  var html = '<div class="sm-block">'
+    + '<div class="sm-head" data-action="toggle-sm" data-id="' + smKey + '">'
+    + '<span class="chev" id="chev-' + smKey + '">›</span>'
     + '<span class="sm-title">' + sm.nome + '</span>'
     + (sm.tipo === 'valor' ? '<span style="font-size:11px;color:#5c5d6a;margin-right:8px">Alvo: ' + sm.alvo + ' ' + (sm.unidade || '') + '</span>' : '')
     + '<span class="badge ' + badgeCls(spv) + '">' + (sm.tipo === 'checklist' ? (sp === 100 ? 'Feito' : 'Pendente') : Math.round(spv) + '%') + '</span>'
-    + '<button class="btn-danger" style="margin-left:8px" onclick="event.stopPropagation();excluirSm(\'' + sm.id + '\')">✕</button>'
-    + '</div><div class="sm-body" id="smbody-' + m.id + '-' + sm.id + '" style="display:none">'
-    + (sm.tipo === 'valor' ? '<div class="pb-bg" style="margin-bottom:.75rem"><div class="pb-fill" style="width:' + spv + '%;background:' + sbar + '"></div></div>' : '')
-    + '<div class="month-grid">'
-    + (mesesSm.length ? mesesSm.map(function(ym) {
-        var u = getSmValMes(sm.id, ym); if (!u) return '';
-        var v = sm.tipo === 'checklist' ? u.feito : parseFloat(u.valor);
-        var dentro = isDentro(sm, v);
-        var pc = sm.tipo === 'checklist' ? (u.feito ? 100 : 0) : (sm.alvo ? Math.min(Math.round((parseFloat(u.valor) || 0) / sm.alvo * 100), 150) : 0);
-        return '<div class="month-chip"><div class="mn">' + yyyymmLabel(ym) + '</div>'
-          + '<div class="mv" style="color:' + barColor(Math.min(pc, 100)) + '">' + (sm.tipo === 'checklist' ? (u.feito ? '✓' : '✗') : (parseFloat(u.valor) || 0).toLocaleString('pt-BR')) + '</div>'
-          + '<div class="mf ' + (dentro ? 'fd' : 'ff') + '">' + (dentro ? '● Dentro' : '● Fora') + ' · ' + Math.round(pc) + '%</div></div>';
-      }).join('') : '<span style="font-size:12px;color:#5c5d6a">Sem dados ainda.</span>')
+    + '<button class="btn-danger" style="margin-left:8px" data-action="excluir-sm" data-id="' + sm.id + '">✕</button>'
     + '</div>'
-    + (allU.length ? '<div style="margin-top:.75rem"><div style="font-size:10px;font-weight:600;color:#5c5d6a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Últimas semanas</div>'
-      + allU.slice(-5).reverse().map(function(u) {
-          var v = sm.tipo === 'checklist' ? u.feito : parseFloat(u.valor); var dentro = isDentro(sm, v);
-          return '<div class="week-row"><span class="week-lbl">' + u.semana.replace('-W', ' S') + '</span>'
-            + '<span class="week-val">' + (sm.tipo === 'checklist' ? (u.feito ? 'Feito' : 'Pendente') : ((parseFloat(u.valor) || 0).toLocaleString('pt-BR') + ' ' + (sm.unidade || ''))) + '</span>'
-            + '<span class="' + (dentro ? 'fd' : 'ff') + '" style="font-size:11px;font-weight:600">' + (dentro ? '● Dentro' : '● Fora') + '</span></div>';
-        }).join('') + '</div>' : '')
-    + '</div></div>';
+    + '<div class="sm-body" id="smbody-' + smKey + '" style="display:none">'
+    + (sm.tipo === 'valor' ? '<div class="pb-bg" style="margin-bottom:.75rem"><div class="pb-fill" style="width:' + spv + '%;background:' + sbar + '"></div></div>' : '')
+    + '<div class="month-grid">';
+  if (mesesSm.length) {
+    mesesSm.forEach(function(ym) {
+      var u = getSmValMes(sm.id, ym); if (!u) return;
+      var v = sm.tipo === 'checklist' ? u.feito : parseFloat(u.valor);
+      var dentro = isDentro(sm, v);
+      var pc = sm.tipo === 'checklist' ? (u.feito ? 100 : 0) : (sm.alvo ? Math.min(Math.round((parseFloat(u.valor) || 0) / sm.alvo * 100), 150) : 0);
+      html += '<div class="month-chip">'
+        + '<div class="mn">' + yyyymmLabel(ym) + '</div>'
+        + '<div class="mv" style="color:' + barColor(Math.min(pc, 100)) + '">' + (sm.tipo === 'checklist' ? (u.feito ? '✓' : '✗') : (parseFloat(u.valor) || 0).toLocaleString('pt-BR')) + '</div>'
+        + '<div class="mf ' + (dentro ? 'fd' : 'ff') + '">' + (dentro ? '● Dentro' : '● Fora') + ' · ' + Math.round(pc) + '%</div>'
+        + '</div>';
+    });
+  } else {
+    html += '<span style="font-size:12px;color:#5c5d6a">Sem dados ainda.</span>';
+  }
+  html += '</div>';
+  if (allU.length) {
+    html += '<div style="margin-top:.75rem"><div style="font-size:10px;font-weight:600;color:#5c5d6a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Últimas semanas</div>';
+    allU.slice(-5).reverse().forEach(function(u) {
+      var v = sm.tipo === 'checklist' ? u.feito : parseFloat(u.valor); var dentro = isDentro(sm, v);
+      html += '<div class="week-row">'
+        + '<span class="week-lbl">' + u.semana.replace('-W', ' S') + '</span>'
+        + '<span class="week-val">' + (sm.tipo === 'checklist' ? (u.feito ? 'Feito' : 'Pendente') : ((parseFloat(u.valor) || 0).toLocaleString('pt-BR') + ' ' + (sm.unidade || ''))) + '</span>'
+        + '<span class="' + (dentro ? 'fd' : 'ff') + '" style="font-size:11px;font-weight:600">' + (dentro ? '● Dentro' : '● Fora') + '</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div></div>';
+  return html;
 }
-
 function toggleMeta(id) { var b = document.getElementById('body-' + id), c = document.getElementById('chev-' + id); var o = b.style.display === 'block'; b.style.display = o ? 'none' : 'block'; c.classList.toggle('open', !o); }
 function toggleSm(id) { var b = document.getElementById('smbody-' + id), c = document.getElementById('chev-' + id); var o = b.style.display === 'block'; b.style.display = o ? 'none' : 'block'; c.classList.toggle('open', !o); }
 
@@ -495,9 +526,10 @@ async function excluirMeta(id) {
   if (!confirm('Excluir esta meta e todos os dados?')) return;
   try {
     await dbDelete('metas', 'id=eq.' + id);
+    var smIds = submetas.filter(function(s){ return s.meta_id === id; }).map(function(s){ return s.id; });
     metas = metas.filter(function(m){ return m.id !== id; });
     submetas = submetas.filter(function(s){ return s.meta_id !== id; });
-    atualizacoes = atualizacoes.filter(function(a){ return !submetas.find(function(s){ return s.id === a.submeta_id; }); });
+    atualizacoes = atualizacoes.filter(function(a){ return smIds.indexOf(a.submeta_id) === -1; });
     renderAll(); toast('Meta excluída.', 'ok');
   } catch(e) { toast('Erro: ' + e.message, 'err'); }
 }
@@ -689,6 +721,15 @@ function setWeek() {
 }
 
 // ─── INIT ──────────────────────────────────────────────────────────
+// Delegação global para sm-head toggle e excluir-sm
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('[data-action]');
+  if (!el) return;
+  var action = el.dataset.action;
+  var id = el.dataset.id;
+  if (action === 'toggle-sm') { e.stopPropagation(); toggleSm(id); }
+  if (action === 'excluir-sm') { e.stopPropagation(); excluirSm(id); }
+});
 setWeek();
 loadAll();
 </script>

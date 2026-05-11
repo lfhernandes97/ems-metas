@@ -294,7 +294,15 @@ function smPctFromUpd(sm,u){
   if(sm.direcao==='abaixo')return v<=sm.alvo?100:Math.min(99,Math.max(0,Math.round(sm.alvo/v*100)));
   return v>=sm.alvo?100:Math.min(99,Math.round(v/sm.alvo*100));
 }
-function getSmPctAtual(sm){var all=getUpdsForSm(sm.id).sort(function(a,b){return a.semana<b.semana?-1:1;});return all.length?smPctFromUpd(sm,all[all.length-1]):null;}
+function getSmPctAtual(sm){
+  // Média de todos os meses — igual à lógica do geral
+  var mesesSm=[...new Set(getUpdsForSm(sm.id).map(function(a){return weekToYYYYMM(a.semana);}))].sort();
+  if(!mesesSm.length)return null;
+  var ps=mesesSm.map(function(ym){return smPctFromUpd(sm,getSmValMes(sm.id,ym));}).filter(function(p){return p!==null;});
+  if(!ps.length)return null;
+  return ps.reduce(function(a,b){return a+b;},0)/ps.length;
+}
+function getSmPctUltimo(sm){var all=getUpdsForSm(sm.id).sort(function(a,b){return a.semana<b.semana?-1:1;});return all.length?smPctFromUpd(sm,all[all.length-1]):null;}
 
 function getMetaPct(meta){
   var sms=getSmForMeta(meta.id);if(!sms.length)return 0;
